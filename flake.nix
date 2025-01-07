@@ -25,14 +25,13 @@
       flake = false;
     };
     systems.url = "github:nix-systems/default-darwin";
-    flake-utils = {
-      url = "flake-utils";
-      inputs.systems.follows = "systems";
-    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, cl-nix-lite, ... }:
-    {
+  outputs = { self, nixpkgs, cl-nix-lite, systems, ... }:
+    let
+      inherit (nixpkgs) lib;
+      eachSystem = lib.genAttrs (import systems);
+    in {
       homeManagerModules.default = { pkgs, lib, config, ... }: {
         options = with lib; {
           targets.darwin.mac-app-util.enable = mkOption {
@@ -62,43 +61,33 @@
             ${mac-app-util}/bin/mac-app-util sync-trampolines "/Applications/Nix Apps" "/Applications/Nix Trampolines"
           '';
       };
-    } // (with flake-utils.lib;
-      eachDefaultSystem (system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system}.extend
-            cl-nix-lite.overlays.default;
+      packages = eachSystem (system:
+        let pkgs = nixpkgs.legacyPackages.${system};
         in {
-          packages = {
-            default = pkgs.callPackage
-              ({ lispPackagesLite, dockutil, findutils, jq, rsync }:
-                with lispPackagesLite;
-                lispScript rec {
-                  name = "mac-app-util";
-                  src = ./main.lisp;
-                  dependencies = [
-                    alexandria
-                    inferior-shell
-                    cl-interpol
-                    cl-json
-                    str
-                    trivia
-                  ];
-                  nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
-                  postInstall = ''
-                    wrapProgramBinary "$out/bin/${name}" \
-                      --suffix PATH : "${
-                        with pkgs;
-                        lib.makeBinPath [ dockutil rsync findutils jq ]
-                      }"
-                  '';
-                  installCheckPhase = ''
-                    $out/bin/${name} --help
-                  '';
-                  doInstallCheck = true;
-                  meta.license = pkgs.lib.licenses.agpl3Only;
-                }) { };
-          };
-
-          formatter = pkgs.nixfmt-classic;
-        }));
+          default = pkgs.callPackage
+            ({ lispPackagesLite, dockutil, findutils, jq, rsync }:
+              with lispPackagesLite;
+              lispScript rec {
+                name = "mac-app-util";
+                src = ./main.lisp;
+                dependencies =
+                  [ alexandria inferior-shell cl-interpol cl-json str trivia ];
+                nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
+                postInstall = ''
+                  wrapProgramBinary "$out/bin/${name}" \
+                    --suffix PATH : "${
+                      with pkgs;
+                      lib.makeBinPath [ dockutil rsync findutils jq ]
+                    }"
+                '';
+                installCheckPhase = ''
+                  $out/bin/${name} --help
+                '';
+                doInstallCheck = true;
+                meta.license = pkgs.lib.licenses.agpl3Only;
+              }) { };
+        });
+      formatter =
+        eachSystem (system: nixpkgs.legacyPackages.${system}.nixfmt-classic);
+    };
 }
